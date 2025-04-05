@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import axios from "axios";
 import ReactMarkdown from "react-markdown";
 
@@ -10,12 +10,22 @@ export default function App() {
   const [audioBase64, setAudioBase64] = useState(null);
   const [uploadMessage, setUploadMessage] = useState("");
   const [loadingAudio, setLoadingAudio] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const chatRef = useRef(null);
+
+  useEffect(() => {
+    if (chatRef.current) {
+      chatRef.current.scrollTop = chatRef.current.scrollHeight;
+    }
+  }, [chatHistory]);
 
   const handleFileUpload = async (e) => {
     const uploadedFile = e.target.files[0];
     setFile(uploadedFile);
     setAudioBase64(null);
     setFormattedNotes("");
+    setChatHistory([]);
+    setUploading(true);
     setUploadMessage("⏳ Uploading and generating notes...");
 
     const formData = new FormData();
@@ -23,7 +33,7 @@ export default function App() {
 
     try {
       const uploadRes = await axios.post("http://localhost:5000/upload", formData);
-      setUploadMessage(uploadRes.data.message || "File uploaded!");
+      setUploadMessage(uploadRes.data.message || "✅ File uploaded.");
 
       const notesRes = await axios.post("http://localhost:5000/generate-notes");
       setFormattedNotes(notesRes.data.formattedNotes || "");
@@ -31,6 +41,8 @@ export default function App() {
     } catch (err) {
       console.error("Upload or generation error:", err);
       setUploadMessage("❌ Failed to upload or generate notes.");
+    } finally {
+      setUploading(false);
     }
   };
 
@@ -82,24 +94,37 @@ export default function App() {
   };
 
   return (
-    <div className="max-w-4xl mx-auto p-6 font-sans space-y-6">
+    <div className="max-w-4xl mx-auto p-6 font-sans space-y-6 text-gray-800">
       <h1 className="text-3xl font-bold text-center">🧠 AI Document Chat</h1>
 
-      <div className="bg-white p-4 shadow rounded space-y-4">
+      {/* File Upload */}
+      <div className="bg-white p-4 shadow rounded space-y-3">
+        <label htmlFor="file" className="block font-medium text-lg">📄 Upload a File</label>
         <input
+          id="file"
           type="file"
           accept=".pdf,.docx,.txt"
           onChange={handleFileUpload}
           className="block w-full border p-2 rounded"
         />
-        {uploadMessage && (
-          <p className="text-sm text-gray-600">{uploadMessage}</p>
-        )}
+        <p
+          className={`text-sm ${
+            uploadMessage.includes("❌")
+              ? "text-red-600"
+              : uploadMessage.includes("✅")
+              ? "text-green-600"
+              : "text-gray-600"
+          }`}
+          aria-live="polite"
+        >
+          {uploadMessage}
+        </p>
       </div>
 
+      {/* Notes Display */}
       {formattedNotes && (
         <div className="bg-white p-4 shadow rounded space-y-4">
-          <h2 className="text-lg font-semibold">📚 AI-Generated Notes</h2>
+          <h2 className="text-xl font-semibold">📚 AI-Generated Notes</h2>
           <div className="prose prose-sm text-gray-800">
             <ReactMarkdown>{formattedNotes}</ReactMarkdown>
           </div>
@@ -107,30 +132,30 @@ export default function App() {
           <div className="flex space-x-4">
             <button
               onClick={handleExportPDF}
-              className="bg-gray-700 text-white px-4 py-2 rounded"
+              className="bg-gray-700 text-white px-4 py-2 rounded hover:bg-gray-800 transition"
             >
               📄 Download Notes as PDF
             </button>
 
             <button
               onClick={handleGenerateAudio}
-              className="bg-emerald-600 text-white px-4 py-2 rounded"
+              disabled={loadingAudio}
+              className={`px-4 py-2 rounded transition ${
+                loadingAudio
+                  ? "bg-blue-300 cursor-not-allowed"
+                  : "bg-blue-600 hover:bg-blue-700 text-white"
+              }`}
             >
-              🔊 Generate Lecture Audio
+              🔊 {loadingAudio ? "Generating Audio..." : "Generate Lecture Audio"}
             </button>
           </div>
         </div>
       )}
 
-      {loadingAudio && (
-        <div className="text-center text-sm text-gray-500">
-          🔄 Generating audio... please wait.
-        </div>
-      )}
-
+      {/* Audio */}
       {audioBase64 && (
         <div className="bg-white p-4 shadow rounded space-y-2">
-          <h2 className="text-lg font-semibold">🔊 Lecture Audio</h2>
+          <h2 className="text-lg font-semibold">🎧 Lecture Audio</h2>
           <audio controls className="w-full">
             <source src={audioBase64} type="audio/mpeg" />
             Your browser does not support the audio tag.
@@ -138,18 +163,21 @@ export default function App() {
         </div>
       )}
 
+      {/* Chat */}
       <div className="bg-white p-4 shadow rounded space-y-4">
         <h2 className="text-lg font-semibold">💬 Chat with Document</h2>
-        <div className="max-h-64 overflow-y-auto space-y-2 border p-2 rounded">
+        <div
+          ref={chatRef}
+          className="max-h-64 overflow-y-auto space-y-2 border p-2 rounded bg-gray-50"
+        >
           {chatHistory.map((msg, idx) => (
             <div
               key={idx}
-              className={`p-2 rounded ${
+              className={`p-2 rounded text-sm ${
                 msg.role === "user" ? "bg-blue-100" : "bg-green-100"
               }`}
             >
-              <strong>{msg.role === "user" ? "You" : "AI"}:</strong>{" "}
-              {msg.content}
+              <strong>{msg.role === "user" ? "You" : "AI"}:</strong> {msg.content}
             </div>
           ))}
         </div>
@@ -161,10 +189,11 @@ export default function App() {
             onChange={(e) => setChatInput(e.target.value)}
             className="flex-1 border p-2 rounded-l"
             placeholder="Ask something about the document..."
+            onKeyDown={(e) => e.key === "Enter" && handleChat()}
           />
           <button
             onClick={handleChat}
-            className="bg-blue-600 text-white px-4 py-2 rounded-r"
+            className="bg-indigo-600 text-white px-4 py-2 rounded-r hover:bg-indigo-700"
           >
             Send
           </button>

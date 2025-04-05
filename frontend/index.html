@@ -1,13 +1,45 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" class="bg-gray-50 text-gray-900">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Vite + React</title>
+    <title>AI Document Chat</title>
+    <link rel="icon" href="/favicon.ico" />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            fontFamily: {
+              sans: ['Inter', 'ui-sans-serif', 'system-ui']
+            }
+          }
+        }
+      }
+    </script>
+    <meta name="description" content="Upload a PDF and chat with it using AI. Generate notes and audio summaries instantly." />
   </head>
-  <body>
-    <div id="root"></div>
+
+  <body class="min-h-screen flex flex-col font-sans">
+    <!-- Header -->
+    <header class="bg-white border-b shadow-sm sticky top-0 z-50">
+      <div class="max-w-6xl mx-auto px-4 py-4 flex justify-between items-center">
+        <h1 class="text-2xl font-semibold tracking-tight flex items-center gap-2">
+          🧠 <span>AI Document Chat</span>
+        </h1>
+        <span class="text-sm text-gray-500">Powered by Gemini</span>
+      </div>
+    </header>
+
+    <!-- React will render into this root element -->
+    <div id="root" class="flex-grow"></div>
+
+    <!-- Footer -->
+    <footer class="bg-white border-t text-center text-sm text-gray-400 py-4">
+      Built with ❤️ using React, Express, Gemini API, and Tailwind CSS.
+    </footer>
+
+    <!-- React Entry -->
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>
