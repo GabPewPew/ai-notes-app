@@ -27,7 +27,10 @@ export default function App() {
       setManuscript(notesRes.data.manuscript || "");
 
       if (notesRes.data.audioBase64) {
-        const audioBlob = new Blob([Uint8Array.from(atob(notesRes.data.audioBase64), c => c.charCodeAt(0))], { type: "audio/mpeg" });
+        const audioBlob = new Blob(
+          [Uint8Array.from(atob(notesRes.data.audioBase64), c => c.charCodeAt(0))],
+          { type: "audio/mpeg" }
+        );
         setAudioBase64(URL.createObjectURL(audioBlob));
       }
     } catch (err) {
@@ -60,6 +63,25 @@ export default function App() {
     }
   };
 
+  const handleDownloadPDF = async () => {
+    try {
+      const res = await axios.get("http://localhost:5000/export-notes", {
+        responseType: "blob",
+      });
+
+      const url = window.URL.createObjectURL(new Blob([res.data]));
+      const link = document.createElement("a");
+      link.href = url;
+      link.setAttribute("download", "AI_Study_Notes.pdf");
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    } catch (err) {
+      console.error("PDF download error:", err);
+      alert("❌ Failed to download PDF.");
+    }
+  };
+
   return (
     <div className="max-w-4xl mx-auto p-6 font-sans space-y-6">
       <h1 className="text-3xl font-bold text-center">🧠 AI Document Chat</h1>
@@ -79,14 +101,24 @@ export default function App() {
       {formattedNotes && (
         <div className="bg-white p-4 shadow rounded space-y-2">
           <h2 className="text-lg font-semibold">📚 AI-Generated Notes</h2>
-          <div className="whitespace-pre-wrap text-sm text-gray-800">{formattedNotes}</div>
+          <div className="whitespace-pre-wrap text-sm text-gray-800">
+            {formattedNotes}
+          </div>
+          <button
+            onClick={handleDownloadPDF}
+            className="mt-3 bg-purple-600 text-white px-4 py-2 rounded"
+          >
+            📄 Download Notes as PDF
+          </button>
         </div>
       )}
 
       {manuscript && (
         <div className="bg-white p-4 shadow rounded space-y-2">
           <h2 className="text-lg font-semibold">📝 Lecture-Style Manuscript</h2>
-          <div className="whitespace-pre-wrap text-sm text-gray-800">{manuscript}</div>
+          <div className="whitespace-pre-wrap text-sm text-gray-800">
+            {manuscript}
+          </div>
         </div>
       )}
 

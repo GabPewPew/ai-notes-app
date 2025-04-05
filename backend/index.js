@@ -5,6 +5,7 @@ const pdfParse = require("pdf-parse");
 const mammoth = require("mammoth");
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 const textToSpeech = require("@google-cloud/text-to-speech");
+const PDFDocument = require("pdfkit");
 require("dotenv").config();
 
 const app = express();
@@ -23,6 +24,7 @@ const ttsClient = new textToSpeech.TextToSpeechClient();
 
 // 🧠 Memory store
 let uploadedText = "";
+let formattedNotesMemory = "";
 
 // 📄 Extract text
 async function extractText(file) {
@@ -75,11 +77,12 @@ app.post("/generate-notes", async (req, res) => {
     // Step 2: Generate formatted notes
     const notesPrompt =
       category === "STEM"
-        ? `Convert this document into clean, indented, bullet-point, without any asterisk symbol study notes for STEM students (medical, science). Group ideas well:\n\n${uploadedText}`
+        ? `Convert this document into clean, indented, bullet-point, study notes for STEM students (medical, science). Use a combination of formating techniques like bullet points, commas, indentations, bolding, and headings to structure the notes clearly. Make it elegant and clear. Group ideas well:\n\n${uploadedText}`
         : `Convert this document into beautiful, structured bullet-point notes for arts/language students. Make it elegant and clear:\n\n${uploadedText}`;
 
     const notesResult = await model.generateContent(notesPrompt);
     const formattedNotes = notesResult.response.text().trim();
+    formattedNotesMemory = formattedNotes; // Save for PDF export
 
     // Step 3: Generate lecture manuscript (limited to ~3500 characters)
     const lecturePrompt = `You are a university professor giving a concise spoken lecture to students.
@@ -108,6 +111,7 @@ ${formattedNotes}`;
 
     const audioBase64 = response.audioContent.toString("base64");
 
+    // Step 5: Return everything
     res.json({
       category,
       formattedNotes,
@@ -121,6 +125,31 @@ ${formattedNotes}`;
   }
 });
 
+// 📄 Export notes to PDF
+app.get("/export-notes", async (req, res) => {
+  try {
+    if (!formattedNotesMemory) {
+      return res.status(400).send("No notes available to export");
+    }
+
+    const doc = new PDFDocument();
+    const filename = "AI_Study_Notes.pdf";
+
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+
+    doc.pipe(res);
+    doc.font("Times-Roman").fontSize(14).text(formattedNotesMemory, {
+      lineGap: 6,
+    });
+    doc.end();
+  } catch (err) {
+    console.error("❌ PDF export error:", err.message);
+    res.status(500).send("Failed to generate PDF");
+  }
+});
+
+// ✅ Start server
 app.listen(port, () => {
   console.log(`🟢 Server running at http://localhost:${port}`);
 });
