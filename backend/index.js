@@ -1,3 +1,4 @@
+// backend/index.js
 const express = require("express");
 const fileUpload = require("express-fileupload");
 const cors = require("cors");
@@ -50,21 +51,16 @@ app.post("/upload", async (req, res) => {
     }
 
     uploadedText = await extractText(req.files.file);
-    res.json({ message: "✅ File uploaded. Text is now available for chat." });
+    res.json({ message: "✅ File uploaded. Text is now available for processing." });
   } catch (err) {
     console.error("❌ Upload error:", err.message);
     res.status(500).send("Failed to process file");
   }
 });
 
-// 💬 Chat route
-app.post("/chat", async (req, res) => {
-  console.log("📨 /chat endpoint hit!");
-  const { messages } = req.body;
-
-  if (!messages || !Array.isArray(messages)) {
-    return res.status(400).send("No messages provided");
-  }
+// 💬 Generate categorized and formatted notes
+app.post("/generate-notes", async (req, res) => {
+  console.log("📨 /generate-notes endpoint hit!");
 
   if (!uploadedText) {
     return res.status(400).send("No document uploaded yet");
@@ -73,33 +69,30 @@ app.post("/chat", async (req, res) => {
   try {
     const model = genAI.getGenerativeModel({ model: "gemini-1.5-pro-latest" });
 
-    const formattedHistory = messages.map((msg) => ({
-      role: msg.role,
-      parts: [{ text: msg.content }],
-    }));
+    // Step 1: Categorize the document
+    const classifyPrompt = `Please classify the following text as either "STEM" or "Language-based". Only reply with one word: STEM or LANGUAGE.\n\n${uploadedText}`;
+    const classifyResult = await model.generateContent(classifyPrompt);
+    const category = classifyResult.response.text().trim().toUpperCase();
+    console.log("📂 Detected Category:", category);
 
-    const chat = model.startChat({ history: formattedHistory });
+    // Step 2: Generate styled notes based on category
+    const formatPrompt =
+      category === "STEM"
+        ? `Summarize the following text into structured, bullet-point notes suitable for studying STEM subjects (e.g. medicine, science, engineering). Make it neat, clear, and concise:\n\n${uploadedText}`
+        : `Summarize the following text into beautiful point-form notes suitable for studying language, arts, or humanities. Make the points clear, elegant, and well-organized:\n\n${uploadedText}`;
 
-    const lastMessage = messages[messages.length - 1].content;
-    const inputWithDoc = `${lastMessage}\n\n---\nHere is the document:\n${uploadedText}`;
+    const formatResult = await model.generateContent(formatPrompt);
+    const formattedNotes = formatResult.response.text().trim();
 
-    const result = await chat.sendMessage(inputWithDoc);
-    const response = await result.response;
-
-    res.json({ reply: response.text() });
+    res.json({ category, formattedNotes });
   } catch (err) {
-    console.error("❌ Chat error:", err.message);
-    if (err.response?.data) {
-      console.error("🔍 Gemini response error:", JSON.stringify(err.response.data, null, 2));
-    }
-    if (err.stack) {
-      console.error("🧠 Stack trace:\n", err.stack);
-    }
-    res.status(500).send("Chat failed");
+    console.error("❌ Gemini error:", err.message);
+    if (err.stack) console.error("🧠 Stack trace:", err.stack);
+    res.status(500).send("Note generation failed");
   }
 });
 
-// 🔊 Audio generation route
+// 🔊 ElevenLabs Audio generation route
 app.post("/generate-audio", async (req, res) => {
   const { text } = req.body;
   if (!text) return res.status(400).send("No text provided");

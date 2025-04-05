@@ -7,6 +7,7 @@ export default function App() {
   const [chatHistory, setChatHistory] = useState([]);
   const [audioUrl, setAudioUrl] = useState(null);
   const [uploadMessage, setUploadMessage] = useState("");
+  const [category, setCategory] = useState("");
 
   const handleFileUpload = async (e) => {
     const uploadedFile = e.target.files[0];
@@ -16,17 +17,24 @@ export default function App() {
     formData.append("file", uploadedFile);
 
     try {
-      const res = await axios.post("http://localhost:5000/upload", formData);
-      setUploadMessage(res.data.message || "File uploaded!");
+      // Step 1: Upload the file
+      const uploadRes = await axios.post("http://localhost:5000/upload", formData);
+      setUploadMessage(uploadRes.data.message || "File uploaded. Processing...");
+
+      // Step 2: Generate categorized notes
+      const notesRes = await axios.post("http://localhost:5000/generate-notes");
+      const { formattedNotes, category } = notesRes.data;
+
+      setCategory(category);
+      setChatHistory([{ role: "assistant", content: formattedNotes }]);
     } catch (err) {
-      console.error("Upload error:", err);
-      setUploadMessage("❌ Failed to upload.");
+      console.error("Upload or generation error:", err);
+      setUploadMessage("❌ Failed to upload or generate notes.");
     }
   };
 
   const handleChat = async () => {
-    console.log("🚀 Chat button clicked"); // ✅ Step 2 debug line
-
+    console.log("🚀 Chat button clicked");
     if (!chatInput.trim()) return;
 
     const newMessage = { role: "user", content: chatInput };
@@ -89,6 +97,11 @@ export default function App() {
         />
         {uploadMessage && (
           <p className="text-sm text-gray-600">{uploadMessage}</p>
+        )}
+        {category && (
+          <p className="text-sm text-indigo-600 font-semibold">
+            📁 Detected Category: {category}
+          </p>
         )}
       </div>
 
