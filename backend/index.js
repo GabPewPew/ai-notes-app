@@ -57,7 +57,7 @@ app.post("/upload", async (req, res) => {
   }
 });
 
-// ✨ Generate notes + manuscript + audio
+// ✨ Generate formatted notes only
 app.post("/generate-notes", async (req, res) => {
   console.log("📨 /generate-notes endpoint hit!");
 
@@ -68,23 +68,40 @@ app.post("/generate-notes", async (req, res) => {
   try {
     const model = genAI.getGenerativeModel({ model: "gemini-1.5-pro-latest" });
 
-    // Step 1: Categorize
     const classifyPrompt = `Please classify the following text as either "STEM" or "Language-based". Only reply with one word: STEM or LANGUAGE.\n\n${uploadedText}`;
     const classifyResult = await model.generateContent(classifyPrompt);
     const category = classifyResult.response.text().trim().toUpperCase();
     console.log("📂 Category:", category);
 
-    // Step 2: Generate formatted notes
     const notesPrompt =
       category === "STEM"
-        ? `Convert this document into clean, indented, bullet-point, study notes for STEM students (medical, science). Use a combination of formating techniques like bullet points, commas, indentations, bolding, and headings to structure the notes clearly. Make it elegant and clear. Group ideas well:\n\n${uploadedText}`
+        ? `Convert this document into clean, indented, bullet-point, study notes for STEM students (medical, science). Use a combination of formatting techniques like bullet points, commas, indentations, bolding, and headings to structure the notes clearly. Make it elegant and clear. Group ideas well:\n\n${uploadedText}`
         : `Convert this document into beautiful, structured bullet-point notes for arts/language students. Make it elegant and clear:\n\n${uploadedText}`;
 
     const notesResult = await model.generateContent(notesPrompt);
     const formattedNotes = notesResult.response.text().trim();
-    formattedNotesMemory = formattedNotes; // Save for PDF export
+    formattedNotesMemory = formattedNotes;
 
-    // Step 3: Generate lecture manuscript (limited to ~3500 characters)
+    res.json({
+      category,
+      formattedNotes,
+    });
+  } catch (err) {
+    console.error("❌ Gemini note generation error:", err.message);
+    if (err.stack) console.error("🧠 Stack trace:", err.stack);
+    res.status(500).send("Note generation failed");
+  }
+});
+
+// 🔊 Generate audio from stored notes (on user request)
+app.post("/generate-audio", async (req, res) => {
+  if (!formattedNotesMemory) {
+    return res.status(400).send("No notes available to convert");
+  }
+
+  try {
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-pro-latest" });
+
     const lecturePrompt = `You are a university professor giving a concise spoken lecture to students.
 Turn the following notes into a clear, natural-sounding lecture script.
 
@@ -93,12 +110,11 @@ Turn the following notes into a clear, natural-sounding lecture script.
 ✅ Do NOT list bullet points — this should sound like a human talking.
 
 Here are the notes:
-${formattedNotes}`;
+${formattedNotesMemory}`;
 
     const lectureResult = await model.generateContent(lecturePrompt);
     const manuscript = lectureResult.response.text().trim();
 
-    // Step 4: Convert to speech with Gemini/Google TTS
     const [response] = await ttsClient.synthesizeSpeech({
       input: { text: manuscript },
       voice: {
@@ -111,17 +127,11 @@ ${formattedNotes}`;
 
     const audioBase64 = response.audioContent.toString("base64");
 
-    // Step 5: Return everything
-    res.json({
-      category,
-      formattedNotes,
-      manuscript,
-      audioBase64,
-    });
+    res.json({ audioBase64 });
   } catch (err) {
     console.error("❌ Gemini/audio error:", err.message);
     if (err.stack) console.error("🧠 Stack trace:", err.stack);
-    res.status(500).send("Note generation failed");
+    res.status(500).send("Audio generation failed");
   }
 });
 

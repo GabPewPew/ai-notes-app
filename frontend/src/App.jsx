@@ -6,13 +6,16 @@ export default function App() {
   const [chatInput, setChatInput] = useState("");
   const [chatHistory, setChatHistory] = useState([]);
   const [formattedNotes, setFormattedNotes] = useState("");
-  const [manuscript, setManuscript] = useState("");
   const [audioBase64, setAudioBase64] = useState(null);
   const [uploadMessage, setUploadMessage] = useState("");
+  const [loadingAudio, setLoadingAudio] = useState(false);
 
   const handleFileUpload = async (e) => {
     const uploadedFile = e.target.files[0];
     setFile(uploadedFile);
+    setAudioBase64(null);
+    setFormattedNotes("");
+    setUploadMessage("⏳ Uploading and generating notes...");
 
     const formData = new FormData();
     formData.append("file", uploadedFile);
@@ -22,20 +25,30 @@ export default function App() {
       setUploadMessage(uploadRes.data.message || "File uploaded!");
 
       const notesRes = await axios.post("http://localhost:5000/generate-notes");
-
       setFormattedNotes(notesRes.data.formattedNotes || "");
-      setManuscript(notesRes.data.manuscript || "");
+      setUploadMessage("✅ Notes generated. You can now play audio or export to PDF.");
+    } catch (err) {
+      console.error("Upload or generation error:", err);
+      setUploadMessage("❌ Failed to upload or generate notes.");
+    }
+  };
 
-      if (notesRes.data.audioBase64) {
+  const handleGenerateAudio = async () => {
+    setLoadingAudio(true);
+    try {
+      const res = await axios.post("http://localhost:5000/generate-audio");
+      if (res.data.audioBase64) {
         const audioBlob = new Blob(
-          [Uint8Array.from(atob(notesRes.data.audioBase64), c => c.charCodeAt(0))],
+          [Uint8Array.from(atob(res.data.audioBase64), (c) => c.charCodeAt(0))],
           { type: "audio/mpeg" }
         );
         setAudioBase64(URL.createObjectURL(audioBlob));
       }
     } catch (err) {
-      console.error("Upload or generation error:", err);
-      setUploadMessage("❌ Failed to upload or generate notes.");
+      console.error("Audio generation error:", err);
+      setUploadMessage("❌ Failed to generate audio.");
+    } finally {
+      setLoadingAudio(false);
     }
   };
 
@@ -63,23 +76,8 @@ export default function App() {
     }
   };
 
-  const handleDownloadPDF = async () => {
-    try {
-      const res = await axios.get("http://localhost:5000/export-notes", {
-        responseType: "blob",
-      });
-
-      const url = window.URL.createObjectURL(new Blob([res.data]));
-      const link = document.createElement("a");
-      link.href = url;
-      link.setAttribute("download", "AI_Study_Notes.pdf");
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-    } catch (err) {
-      console.error("PDF download error:", err);
-      alert("❌ Failed to download PDF.");
-    }
+  const handleExportPDF = () => {
+    window.open("http://localhost:5000/export-notes", "_blank");
   };
 
   return (
@@ -99,27 +97,30 @@ export default function App() {
       </div>
 
       {formattedNotes && (
-        <div className="bg-white p-4 shadow rounded space-y-2">
+        <div className="bg-white p-4 shadow rounded space-y-4">
           <h2 className="text-lg font-semibold">📚 AI-Generated Notes</h2>
-          <div className="whitespace-pre-wrap text-sm text-gray-800">
-            {formattedNotes}
+          <div className="whitespace-pre-wrap text-sm text-gray-800">{formattedNotes}</div>
+
+          <div className="flex space-x-4">
+            <button
+              onClick={handleExportPDF}
+              className="bg-gray-700 text-white px-4 py-2 rounded"
+            >
+              📄 Download Notes as PDF
+            </button>
+
+            <button
+              onClick={handleGenerateAudio}
+              className="bg-emerald-600 text-white px-4 py-2 rounded"
+            >
+              🔊 Generate Lecture Audio
+            </button>
           </div>
-          <button
-            onClick={handleDownloadPDF}
-            className="mt-3 bg-purple-600 text-white px-4 py-2 rounded"
-          >
-            📄 Download Notes as PDF
-          </button>
         </div>
       )}
 
-      {manuscript && (
-        <div className="bg-white p-4 shadow rounded space-y-2">
-          <h2 className="text-lg font-semibold">📝 Lecture-Style Manuscript</h2>
-          <div className="whitespace-pre-wrap text-sm text-gray-800">
-            {manuscript}
-          </div>
-        </div>
+      {loadingAudio && (
+        <div className="text-center text-sm text-gray-500">🔄 Generating audio... please wait.</div>
       )}
 
       {audioBase64 && (
