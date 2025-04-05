@@ -15,7 +15,7 @@ export default function App() {
   const [uploadProgress, setUploadProgress] = useState(0);
   const [processProgress, setProcessProgress] = useState(0);
 
-  const [showPDFPreview, setShowPDFPreview] = useState(false); // New state
+  const [showPDFPreview, setShowPDFPreview] = useState(false);
   const chatRef = useRef(null);
   const progressTimerRef = useRef(null);
 
@@ -50,7 +50,6 @@ export default function App() {
       });
       setUploadMessage(uploadRes.data.message || "✅ File uploaded.");
 
-      // Start Gemini processing with simulated progress
       setProcessing(true);
       setProcessProgress(0);
       let progress = 0;
@@ -67,7 +66,7 @@ export default function App() {
       clearInterval(progressTimerRef.current);
       setProcessProgress(100);
       setFormattedNotes(notesRes.data.formattedNotes || "");
-      setShowPDFPreview(true); // Show the PDF preview only after notes are ready
+      setShowPDFPreview(true);
       setUploadMessage("✅ Notes generated. You can now play audio or export to PDF.");
     } catch (err) {
       clearInterval(progressTimerRef.current);
@@ -126,11 +125,14 @@ export default function App() {
     window.open("http://localhost:5000/export-notes", "_blank");
   };
 
+  const handleExportDOCX = () => {
+    window.open("http://localhost:5000/export-notes-docx", "_blank");
+  };
+
   return (
     <div className="max-w-4xl mx-auto p-6 font-sans space-y-6 text-gray-800">
       <h1 className="text-3xl font-bold text-center">🧠 AI Document Chat</h1>
 
-      {/* File Upload */}
       <div className="bg-white p-4 shadow rounded space-y-4">
         <label htmlFor="file" className="block font-medium text-lg">
           📄 Upload a File
@@ -143,7 +145,6 @@ export default function App() {
           className="block w-full border p-2 rounded"
         />
 
-        {/* Uploading Progress Bar */}
         {uploading && (
           <div className="w-full bg-gray-200 rounded h-4 overflow-hidden">
             <div
@@ -153,7 +154,6 @@ export default function App() {
           </div>
         )}
 
-        {/* Gemini Processing Bar */}
         {processing && (
           <div className="w-full bg-orange-200 rounded h-4 overflow-hidden mt-2">
             <div
@@ -179,7 +179,6 @@ export default function App() {
         )}
       </div>
 
-      {/* Notes Display with PDF Preview */}
       {formattedNotes && (
         <div className="bg-white p-4 shadow rounded space-y-4">
           <h2 className="text-xl font-semibold">📚 AI-Generated Notes</h2>
@@ -195,12 +194,19 @@ export default function App() {
             </div>
           )}
 
-          <div className="flex space-x-4">
+          <div className="flex flex-wrap gap-4">
             <button
               onClick={handleExportPDF}
               className="bg-gray-700 text-white px-4 py-2 rounded hover:bg-gray-800 transition"
             >
               📄 Download Notes as PDF
+            </button>
+
+            <button
+              onClick={handleExportDOCX}
+              className="bg-amber-600 text-white px-4 py-2 rounded hover:bg-amber-700 transition"
+            >
+              📝 Download Notes as Word
             </button>
 
             <button
@@ -218,7 +224,6 @@ export default function App() {
         </div>
       )}
 
-      {/* Audio */}
       {audioBase64 && (
         <div className="bg-white p-4 shadow rounded space-y-2">
           <h2 className="text-lg font-semibold">🎧 Lecture Audio</h2>
@@ -229,7 +234,6 @@ export default function App() {
         </div>
       )}
 
-      {/* Chat */}
       <div className="bg-white p-4 shadow rounded space-y-4">
         <h2 className="text-lg font-semibold">💬 Chat with Document</h2>
         <div
