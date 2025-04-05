@@ -1,3 +1,4 @@
+
 const express = require("express");
 const fileUpload = require("express-fileupload");
 const cors = require("cors");
@@ -5,7 +6,11 @@ const pdfParse = require("pdf-parse");
 const mammoth = require("mammoth");
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 const textToSpeech = require("@google-cloud/text-to-speech");
-const PDFDocument = require("pdfkit");
+const { v4: uuidv4 } = require("uuid");
+const { writeFileSync, createReadStream, unlinkSync, existsSync, mkdirSync } = require("fs");
+const path = require("path");
+const marked = require("marked");
+const puppeteer = require("puppeteer");
 require("dotenv").config();
 
 const app = express();
@@ -15,18 +20,14 @@ app.use(cors());
 app.use(express.json({ limit: "50mb" }));
 app.use(fileUpload({ limits: { fileSize: 50 * 1024 * 1024 } }));
 
-// ✅ Logs
 console.log("🔑 GEMINI:", process.env.GEMINI_API_KEY ? "Loaded" : "Missing");
 
-// ✅ Google APIs
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const ttsClient = new textToSpeech.TextToSpeechClient();
 
-// 🧠 Memory store
 let uploadedText = "";
 let formattedNotesMemory = "";
 
-// 📄 Extract text
 async function extractText(file) {
   const ext = file.name.split(".").pop().toLowerCase();
   if (ext === "pdf") {
@@ -42,7 +43,6 @@ async function extractText(file) {
   }
 }
 
-// 📤 Upload
 app.post("/upload", async (req, res) => {
   try {
     if (!req.files || !req.files.file) {
@@ -57,7 +57,6 @@ app.post("/upload", async (req, res) => {
   }
 });
 
-// ✨ Generate formatted notes only
 app.post("/generate-notes", async (req, res) => {
   console.log("📨 /generate-notes endpoint hit!");
 
@@ -68,32 +67,53 @@ app.post("/generate-notes", async (req, res) => {
   try {
     const model = genAI.getGenerativeModel({ model: "gemini-1.5-pro-latest" });
 
-    const classifyPrompt = `Please classify the following text as either "STEM" or "Language-based". Only reply with one word: STEM or LANGUAGE.\n\n${uploadedText}`;
+    const classifyPrompt = `Please classify the following text as either "STEM" or "Language-based". Only reply with one word: STEM or LANGUAGE.
+
+${uploadedText}`;
     const classifyResult = await model.generateContent(classifyPrompt);
     const category = classifyResult.response.text().trim().toUpperCase();
     console.log("📂 Category:", category);
 
     const notesPrompt =
       category === "STEM"
-        ? `Convert this document into clean, indented, bullet-point, study notes for STEM students (medical, science). Use a combination of formatting techniques like bullet points, commas, indentations, bolding, and headings to structure the notes clearly. Make it elegant and clear. Group ideas well:\n\n${uploadedText}`
-        : `Convert this document into beautiful, structured bullet-point notes for arts/language students. Make it elegant and clear:\n\n${uploadedText}`;
+        ? `
+You are a study note formatting assistant. Please convert the following medical document into clean, elegant, and highly readable study notes suitable for medical students.
+
+Requirements:
+- DO NOT use asterisks (*).
+- Use proper markdown or plain formatting instead.
+- Use clear section headings with bold (e.g. "## Investigations").
+- Use indentation and bullet points with dashes (-) or numbered lists.
+- Where appropriate, use tables (e.g. for classifications).
+- Keep the style professional, clear, and logically grouped.
+
+Input Text:
+${uploadedText}
+        `
+        : `
+You are a study note formatting assistant. Please convert the following text into elegant, structured notes suitable for arts or language students.
+
+Requirements:
+- Use professional markdown or plain formatting.
+- Include headers, bullet points (- or numbers), and paragraph structure.
+- Do NOT use asterisks.
+- Keep it well-organized and easy to follow.
+
+Input Text:
+${uploadedText}
+        `;
 
     const notesResult = await model.generateContent(notesPrompt);
     const formattedNotes = notesResult.response.text().trim();
     formattedNotesMemory = formattedNotes;
 
-    res.json({
-      category,
-      formattedNotes,
-    });
+    res.json({ category, formattedNotes });
   } catch (err) {
     console.error("❌ Gemini note generation error:", err.message);
-    if (err.stack) console.error("🧠 Stack trace:", err.stack);
     res.status(500).send("Note generation failed");
   }
 });
 
-// 🔊 Generate audio from stored notes (on user request)
 app.post("/generate-audio", async (req, res) => {
   if (!formattedNotesMemory) {
     return res.status(400).send("No notes available to convert");
@@ -117,49 +137,86 @@ ${formattedNotesMemory}`;
 
     const [response] = await ttsClient.synthesizeSpeech({
       input: { text: manuscript },
-      voice: {
-        languageCode: "en-US",
-        name: "en-US-Neural2-D",
-        ssmlGender: "MALE",
-      },
+      voice: { languageCode: "en-US", name: "en-US-Neural2-D", ssmlGender: "MALE" },
       audioConfig: { audioEncoding: "MP3" },
     });
 
     const audioBase64 = response.audioContent.toString("base64");
-
     res.json({ audioBase64 });
   } catch (err) {
     console.error("❌ Gemini/audio error:", err.message);
-    if (err.stack) console.error("🧠 Stack trace:", err.stack);
     res.status(500).send("Audio generation failed");
   }
 });
 
-// 📄 Export notes to PDF
 app.get("/export-notes", async (req, res) => {
   try {
     if (!formattedNotesMemory) {
       return res.status(400).send("No notes available to export");
     }
 
-    const doc = new PDFDocument();
-    const filename = "AI_Study_Notes.pdf";
+    const htmlBody = marked.parse(formattedNotesMemory);
+
+    const htmlContent = `
+<html>
+  <head>
+    <meta charset="UTF-8">
+    <title>AI Study Notes</title>
+    <style>
+      body {
+        font-family: 'Georgia', serif;
+        line-height: 1.6;
+        padding: 40px;
+        color: #333;
+        max-width: 800px;
+        margin: auto;
+      }
+      h1, h2, h3 {
+        color: #2c3e50;
+        border-bottom: 1px solid #ccc;
+        padding-bottom: 0.3em;
+        margin-top: 2rem;
+      }
+      ul {
+        margin-left: 1.5rem;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 1rem 0;
+      }
+      th, td {
+        border: 1px solid #aaa;
+        padding: 0.5rem;
+        text-align: left;
+      }
+      pre, code {
+        background: #f5f5f5;
+        padding: 0.3rem;
+        font-family: monospace;
+      }
+    </style>
+  </head>
+  <body>${htmlBody}</body>
+</html>
+`;
+
+    const browser = await puppeteer.launch({ headless: "new" });
+    const page = await browser.newPage();
+    await page.setContent(htmlContent, { waitUntil: "networkidle0" });
+
+    const pdfBuffer = await page.pdf({ format: "A4", printBackground: true });
+    await browser.close();
 
     res.setHeader("Content-Type", "application/pdf");
-    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
-
-    doc.pipe(res);
-    doc.font("Times-Roman").fontSize(14).text(formattedNotesMemory, {
-      lineGap: 6,
-    });
-    doc.end();
+    res.setHeader("Content-Disposition", "attachment; filename=AI_Study_Notes.pdf");
+    res.send(pdfBuffer);
   } catch (err) {
-    console.error("❌ PDF export error:", err.message);
+    console.error("❌ Puppeteer PDF export error:", err.message);
     res.status(500).send("Failed to generate PDF");
   }
 });
 
-// ✅ Start server
 app.listen(port, () => {
   console.log(`🟢 Server running at http://localhost:${port}`);
 });

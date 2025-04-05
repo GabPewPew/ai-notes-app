@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import axios from "axios";
+import ReactMarkdown from "react-markdown";
 
 export default function App() {
   const [file, setFile] = useState(null);
@@ -99,7 +100,9 @@ export default function App() {
       {formattedNotes && (
         <div className="bg-white p-4 shadow rounded space-y-4">
           <h2 className="text-lg font-semibold">📚 AI-Generated Notes</h2>
-          <div className="whitespace-pre-wrap text-sm text-gray-800">{formattedNotes}</div>
+          <div className="prose prose-sm text-gray-800">
+            <ReactMarkdown>{formattedNotes}</ReactMarkdown>
+          </div>
 
           <div className="flex space-x-4">
             <button
@@ -120,7 +123,9 @@ export default function App() {
       )}
 
       {loadingAudio && (
-        <div className="text-center text-sm text-gray-500">🔄 Generating audio... please wait.</div>
+        <div className="text-center text-sm text-gray-500">
+          🔄 Generating audio... please wait.
+        </div>
       )}
 
       {audioBase64 && (
