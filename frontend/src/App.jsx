@@ -10,8 +10,14 @@ export default function App() {
   const [audioBase64, setAudioBase64] = useState(null);
   const [uploadMessage, setUploadMessage] = useState("");
   const [loadingAudio, setLoadingAudio] = useState(false);
+
   const [uploading, setUploading] = useState(false);
+  const [processing, setProcessing] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [processProgress, setProcessProgress] = useState(0);
+
   const chatRef = useRef(null);
+  const progressTimerRef = useRef(null);
 
   useEffect(() => {
     if (chatRef.current) {
@@ -25,24 +31,49 @@ export default function App() {
     setAudioBase64(null);
     setFormattedNotes("");
     setChatHistory([]);
+    setUploadProgress(0);
+    setUploadMessage("");
     setUploading(true);
-    setUploadMessage("⏳ Uploading and generating notes...");
+    setProcessing(false);
+    setProcessProgress(0);
 
     const formData = new FormData();
     formData.append("file", uploadedFile);
 
     try {
-      const uploadRes = await axios.post("http://localhost:5000/upload", formData);
+      const uploadRes = await axios.post("http://localhost:5000/upload", formData, {
+        onUploadProgress: (progressEvent) => {
+          const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+          setUploadProgress(percent);
+        },
+      });
       setUploadMessage(uploadRes.data.message || "✅ File uploaded.");
 
+      // Start Gemini processing with simulated progress
+      setProcessing(true);
+      setProcessProgress(0);
+      let progress = 0;
+
+      progressTimerRef.current = setInterval(() => {
+        progress += Math.random() * 5;
+        if (progress < 95) {
+          setProcessProgress(progress);
+        }
+      }, 300);
+
       const notesRes = await axios.post("http://localhost:5000/generate-notes");
+
+      clearInterval(progressTimerRef.current);
+      setProcessProgress(100);
       setFormattedNotes(notesRes.data.formattedNotes || "");
       setUploadMessage("✅ Notes generated. You can now play audio or export to PDF.");
     } catch (err) {
+      clearInterval(progressTimerRef.current);
       console.error("Upload or generation error:", err);
       setUploadMessage("❌ Failed to upload or generate notes.");
     } finally {
       setUploading(false);
+      setProcessing(false);
     }
   };
 
@@ -98,8 +129,10 @@ export default function App() {
       <h1 className="text-3xl font-bold text-center">🧠 AI Document Chat</h1>
 
       {/* File Upload */}
-      <div className="bg-white p-4 shadow rounded space-y-3">
-        <label htmlFor="file" className="block font-medium text-lg">📄 Upload a File</label>
+      <div className="bg-white p-4 shadow rounded space-y-4">
+        <label htmlFor="file" className="block font-medium text-lg">
+          📄 Upload a File
+        </label>
         <input
           id="file"
           type="file"
@@ -107,18 +140,41 @@ export default function App() {
           onChange={handleFileUpload}
           className="block w-full border p-2 rounded"
         />
-        <p
-          className={`text-sm ${
-            uploadMessage.includes("❌")
-              ? "text-red-600"
-              : uploadMessage.includes("✅")
-              ? "text-green-600"
-              : "text-gray-600"
-          }`}
-          aria-live="polite"
-        >
-          {uploadMessage}
-        </p>
+
+        {/* Uploading Progress Bar */}
+        {uploading && (
+          <div className="w-full bg-gray-200 rounded h-4 overflow-hidden">
+            <div
+              className="bg-blue-500 h-4 transition-all ease-in-out duration-200"
+              style={{ width: `${uploadProgress}%` }}
+            ></div>
+          </div>
+        )}
+
+        {/* Gemini Processing Bar */}
+        {processing && (
+          <div className="w-full bg-orange-200 rounded h-4 overflow-hidden mt-2">
+            <div
+              className="bg-orange-500 h-4 transition-all ease-in-out duration-200"
+              style={{ width: `${processProgress}%` }}
+            ></div>
+          </div>
+        )}
+
+        {uploadMessage && (
+          <p
+            className={`text-sm ${
+              uploadMessage.includes("❌")
+                ? "text-red-600"
+                : uploadMessage.includes("✅")
+                ? "text-green-600"
+                : "text-gray-600"
+            }`}
+            aria-live="polite"
+          >
+            {uploadMessage}
+          </p>
+        )}
       </div>
 
       {/* Notes Display */}
