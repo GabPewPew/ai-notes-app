@@ -143,7 +143,7 @@ app.post("/generate-audio", async (req, res) => {
   }
 });
 
-// 📄 Export Notes to PDF
+// 📄 Export Notes to PDF (for iframe or download)
 app.get("/export-notes", async (req, res) => {
   try {
     if (!formattedNotesMemory) {
@@ -203,7 +203,7 @@ app.get("/export-notes", async (req, res) => {
     await browser.close();
 
     res.setHeader("Content-Type", "application/pdf");
-    res.setHeader("Content-Disposition", "attachment; filename=AI_Study_Notes.pdf");
+    res.setHeader("Content-Disposition", "inline; filename=AI_Study_Notes.pdf"); // ← Key fix!
     res.send(pdfBuffer);
   } catch (err) {
     console.error("❌ Puppeteer PDF export error:", err.message);

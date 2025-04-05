@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
 import axios from "axios";
-import ReactMarkdown from "react-markdown";
 
 export default function App() {
   const [file, setFile] = useState(null);
@@ -16,6 +15,7 @@ export default function App() {
   const [uploadProgress, setUploadProgress] = useState(0);
   const [processProgress, setProcessProgress] = useState(0);
 
+  const [showPDFPreview, setShowPDFPreview] = useState(false); // New state
   const chatRef = useRef(null);
   const progressTimerRef = useRef(null);
 
@@ -36,6 +36,7 @@ export default function App() {
     setUploading(true);
     setProcessing(false);
     setProcessProgress(0);
+    setShowPDFPreview(false);
 
     const formData = new FormData();
     formData.append("file", uploadedFile);
@@ -66,6 +67,7 @@ export default function App() {
       clearInterval(progressTimerRef.current);
       setProcessProgress(100);
       setFormattedNotes(notesRes.data.formattedNotes || "");
+      setShowPDFPreview(true); // Show the PDF preview only after notes are ready
       setUploadMessage("✅ Notes generated. You can now play audio or export to PDF.");
     } catch (err) {
       clearInterval(progressTimerRef.current);
@@ -177,13 +179,21 @@ export default function App() {
         )}
       </div>
 
-      {/* Notes Display */}
+      {/* Notes Display with PDF Preview */}
       {formattedNotes && (
         <div className="bg-white p-4 shadow rounded space-y-4">
           <h2 className="text-xl font-semibold">📚 AI-Generated Notes</h2>
-          <div className="prose prose-sm text-gray-800">
-            <ReactMarkdown>{formattedNotes}</ReactMarkdown>
-          </div>
+
+          {showPDFPreview && (
+            <div className="mt-6">
+              <h3 className="font-semibold mb-2">📄 PDF Preview:</h3>
+              <iframe
+                src="http://localhost:5000/export-notes"
+                title="PDF Preview"
+                className="w-full h-[600px] border rounded"
+              ></iframe>
+            </div>
+          )}
 
           <div className="flex space-x-4">
             <button
