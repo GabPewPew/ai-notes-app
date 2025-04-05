@@ -1,4 +1,3 @@
-
 const express = require("express");
 const fileUpload = require("express-fileupload");
 const cors = require("cors");
@@ -12,6 +11,12 @@ const path = require("path");
 const marked = require("marked");
 const puppeteer = require("puppeteer");
 require("dotenv").config();
+
+const {
+  getClassificationPrompt,
+  getNotesPrompt,
+  getLecturePrompt,
+} = require("./prompts");
 
 const app = express();
 const port = 5000;
@@ -28,6 +33,26 @@ const ttsClient = new textToSpeech.TextToSpeechClient();
 let uploadedText = "";
 let formattedNotesMemory = "";
 
+// ✅ Utility: Chunk long text
+function chunkText(text, maxLength = 12000) {
+  const paragraphs = text.split("\n\n");
+  const chunks = [];
+  let current = "";
+
+  for (const para of paragraphs) {
+    if ((current + para).length > maxLength) {
+      chunks.push(current.trim());
+      current = para + "\n\n";
+    } else {
+      current += para + "\n\n";
+    }
+  }
+
+  if (current.trim()) chunks.push(current.trim());
+  return chunks;
+}
+
+// 📄 Extract text
 async function extractText(file) {
   const ext = file.name.split(".").pop().toLowerCase();
   if (ext === "pdf") {
@@ -43,6 +68,7 @@ async function extractText(file) {
   }
 }
 
+// 📤 Upload
 app.post("/upload", async (req, res) => {
   try {
     if (!req.files || !req.files.file) {
@@ -57,6 +83,7 @@ app.post("/upload", async (req, res) => {
   }
 });
 
+// ✨ Generate Notes
 app.post("/generate-notes", async (req, res) => {
   console.log("📨 /generate-notes endpoint hit!");
 
@@ -67,53 +94,30 @@ app.post("/generate-notes", async (req, res) => {
   try {
     const model = genAI.getGenerativeModel({ model: "gemini-1.5-pro-latest" });
 
-    const classifyPrompt = `Please classify the following text as either "STEM" or "Language-based". Only reply with one word: STEM or LANGUAGE.
-
-${uploadedText}`;
+    const classifyPrompt = getClassificationPrompt(uploadedText);
     const classifyResult = await model.generateContent(classifyPrompt);
     const category = classifyResult.response.text().trim().toUpperCase();
     console.log("📂 Category:", category);
 
-    const notesPrompt =
-      category === "STEM"
-        ? `
-You are a study note formatting assistant. Please convert the following medical document into clean, elegant, and highly readable study notes suitable for medical students.
+    const chunks = chunkText(uploadedText);
+    let allFormattedNotes = "";
 
-Requirements:
-- DO NOT use asterisks (*).
-- Use proper markdown or plain formatting instead.
-- Use clear section headings with bold (e.g. "## Investigations").
-- Use indentation and bullet points with dashes (-) or numbered lists.
-- Where appropriate, use tables (e.g. for classifications).
-- Keep the style professional, clear, and logically grouped.
+    for (let i = 0; i < chunks.length; i++) {
+      const chunk = chunks[i];
+      const notesPrompt = getNotesPrompt(chunk, category);
+      const notesResult = await model.generateContent(notesPrompt);
+      allFormattedNotes += notesResult.response.text().trim() + "\n\n";
+    }
 
-Input Text:
-${uploadedText}
-        `
-        : `
-You are a study note formatting assistant. Please convert the following text into elegant, structured notes suitable for arts or language students.
-
-Requirements:
-- Use professional markdown or plain formatting.
-- Include headers, bullet points (- or numbers), and paragraph structure.
-- Do NOT use asterisks.
-- Keep it well-organized and easy to follow.
-
-Input Text:
-${uploadedText}
-        `;
-
-    const notesResult = await model.generateContent(notesPrompt);
-    const formattedNotes = notesResult.response.text().trim();
-    formattedNotesMemory = formattedNotes;
-
-    res.json({ category, formattedNotes });
+    formattedNotesMemory = allFormattedNotes.trim();
+    res.json({ category, formattedNotes: formattedNotesMemory });
   } catch (err) {
     console.error("❌ Gemini note generation error:", err.message);
     res.status(500).send("Note generation failed");
   }
 });
 
+// 🔊 Generate Lecture Audio
 app.post("/generate-audio", async (req, res) => {
   if (!formattedNotesMemory) {
     return res.status(400).send("No notes available to convert");
@@ -121,17 +125,7 @@ app.post("/generate-audio", async (req, res) => {
 
   try {
     const model = genAI.getGenerativeModel({ model: "gemini-1.5-pro-latest" });
-
-    const lecturePrompt = `You are a university professor giving a concise spoken lecture to students.
-Turn the following notes into a clear, natural-sounding lecture script.
-
-✅ Stay within 3000–3500 characters (roughly 3–5 paragraphs).
-✅ Use simple explanations, short sentences, and smooth transitions.
-✅ Do NOT list bullet points — this should sound like a human talking.
-
-Here are the notes:
-${formattedNotesMemory}`;
-
+    const lecturePrompt = getLecturePrompt(formattedNotesMemory);
     const lectureResult = await model.generateContent(lecturePrompt);
     const manuscript = lectureResult.response.text().trim();
 
@@ -149,6 +143,7 @@ ${formattedNotesMemory}`;
   }
 });
 
+// 📄 Export Notes to PDF
 app.get("/export-notes", async (req, res) => {
   try {
     if (!formattedNotesMemory) {
@@ -156,7 +151,6 @@ app.get("/export-notes", async (req, res) => {
     }
 
     const htmlBody = marked.parse(formattedNotesMemory);
-
     const htmlContent = `
 <html>
   <head>
