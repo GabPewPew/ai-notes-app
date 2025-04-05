@@ -6,7 +6,8 @@ export default function App() {
   const [chatInput, setChatInput] = useState("");
   const [chatHistory, setChatHistory] = useState([]);
   const [formattedNotes, setFormattedNotes] = useState("");
-  const [audioUrl, setAudioUrl] = useState(null);
+  const [manuscript, setManuscript] = useState("");
+  const [audioBase64, setAudioBase64] = useState(null);
   const [uploadMessage, setUploadMessage] = useState("");
 
   const handleFileUpload = async (e) => {
@@ -21,7 +22,14 @@ export default function App() {
       setUploadMessage(uploadRes.data.message || "File uploaded!");
 
       const notesRes = await axios.post("http://localhost:5000/generate-notes");
-      setFormattedNotes(notesRes.data.formattedNotes);
+
+      setFormattedNotes(notesRes.data.formattedNotes || "");
+      setManuscript(notesRes.data.manuscript || "");
+
+      if (notesRes.data.audioBase64) {
+        const audioBlob = new Blob([Uint8Array.from(atob(notesRes.data.audioBase64), c => c.charCodeAt(0))], { type: "audio/mpeg" });
+        setAudioBase64(URL.createObjectURL(audioBlob));
+      }
     } catch (err) {
       console.error("Upload or generation error:", err);
       setUploadMessage("❌ Failed to upload or generate notes.");
@@ -52,32 +60,6 @@ export default function App() {
     }
   };
 
-  const handleGenerateAudio = async () => {
-    const lastAssistantMessage = chatHistory
-      .slice()
-      .reverse()
-      .find((msg) => msg.role === "assistant");
-
-    if (!lastAssistantMessage) {
-      alert("No assistant response to convert to audio.");
-      return;
-    }
-
-    try {
-      const res = await axios.post(
-        "http://localhost:5000/generate-audio",
-        { text: lastAssistantMessage.content },
-        { responseType: "blob" }
-      );
-
-      const url = URL.createObjectURL(new Blob([res.data]));
-      setAudioUrl(url);
-    } catch (err) {
-      console.error("Audio generation error:", err);
-      alert("Failed to generate audio.");
-    }
-  };
-
   return (
     <div className="max-w-4xl mx-auto p-6 font-sans space-y-6">
       <h1 className="text-3xl font-bold text-center">🧠 AI Document Chat</h1>
@@ -98,6 +80,23 @@ export default function App() {
         <div className="bg-white p-4 shadow rounded space-y-2">
           <h2 className="text-lg font-semibold">📚 AI-Generated Notes</h2>
           <div className="whitespace-pre-wrap text-sm text-gray-800">{formattedNotes}</div>
+        </div>
+      )}
+
+      {manuscript && (
+        <div className="bg-white p-4 shadow rounded space-y-2">
+          <h2 className="text-lg font-semibold">📝 Lecture-Style Manuscript</h2>
+          <div className="whitespace-pre-wrap text-sm text-gray-800">{manuscript}</div>
+        </div>
+      )}
+
+      {audioBase64 && (
+        <div className="bg-white p-4 shadow rounded space-y-2">
+          <h2 className="text-lg font-semibold">🔊 Lecture Audio</h2>
+          <audio controls className="w-full">
+            <source src={audioBase64} type="audio/mpeg" />
+            Your browser does not support the audio tag.
+          </audio>
         </div>
       )}
 
@@ -132,22 +131,6 @@ export default function App() {
             Send
           </button>
         </div>
-      </div>
-
-      <div className="bg-white p-4 shadow rounded">
-        <h2 className="text-lg font-semibold mb-2">🔊 Generate Audio</h2>
-        <button
-          onClick={handleGenerateAudio}
-          className="bg-emerald-500 text-white px-4 py-2 rounded"
-        >
-          Convert last AI reply to Audio
-        </button>
-        {audioUrl && (
-          <audio controls className="mt-4 w-full">
-            <source src={audioUrl} type="audio/mpeg" />
-            Your browser does not support the audio tag.
-          </audio>
-        )}
       </div>
     </div>
   );

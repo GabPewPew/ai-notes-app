@@ -4,28 +4,27 @@ const cors = require("cors");
 const pdfParse = require("pdf-parse");
 const mammoth = require("mammoth");
 const { GoogleGenerativeAI } = require("@google/generative-ai");
-const axios = require("axios");
+const textToSpeech = require("@google-cloud/text-to-speech");
 require("dotenv").config();
 
 const app = express();
 const port = 5000;
 
 app.use(cors());
-app.use(express.json({ limit: "10mb" }));
-app.use(fileUpload({ limits: { fileSize: 50 * 1024 * 1024 } })); // 50MB max
+app.use(express.json({ limit: "50mb" }));
+app.use(fileUpload({ limits: { fileSize: 50 * 1024 * 1024 } }));
 
-// ✅ Log environment variable status
+// ✅ Logs
 console.log("🔑 GEMINI:", process.env.GEMINI_API_KEY ? "Loaded" : "Missing");
-console.log("🔑 ELEVEN:", process.env.ELEVEN_API_KEY ? "Loaded" : "Missing");
-console.log("🔊 VOICE ID:", process.env.ELEVEN_VOICE_ID ? "Loaded" : "Missing");
 
-// ✅ Initialize Gemini
+// ✅ Google APIs
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+const ttsClient = new textToSpeech.TextToSpeechClient();
 
-// 🧠 Store uploaded document
+// 🧠 Memory store
 let uploadedText = "";
 
-// 📄 Extract text from file
+// 📄 Extract text
 async function extractText(file) {
   const ext = file.name.split(".").pop().toLowerCase();
   if (ext === "pdf") {
@@ -41,12 +40,13 @@ async function extractText(file) {
   }
 }
 
-// 📤 Upload route
+// 📤 Upload
 app.post("/upload", async (req, res) => {
   try {
     if (!req.files || !req.files.file) {
       return res.status(400).send("No file uploaded");
     }
+
     uploadedText = await extractText(req.files.file);
     res.json({ message: "✅ File uploaded. Text is now available for processing." });
   } catch (err) {
@@ -55,16 +55,7 @@ app.post("/upload", async (req, res) => {
   }
 });
 
-// 📎 Helper: split text into smaller chunks
-function chunkText(text, maxLength = 10000) {
-  const chunks = [];
-  for (let i = 0; i < text.length; i += maxLength) {
-    chunks.push(text.slice(i, i + maxLength));
-  }
-  return chunks;
-}
-
-// 📄 Generate categorized and formatted notes
+// ✨ Generate notes + manuscript + audio
 app.post("/generate-notes", async (req, res) => {
   console.log("📨 /generate-notes endpoint hit!");
 
@@ -75,68 +66,61 @@ app.post("/generate-notes", async (req, res) => {
   try {
     const model = genAI.getGenerativeModel({ model: "gemini-1.5-pro-latest" });
 
-    // Step 1: Categorize the document
-    const classifyPrompt = `Please classify the following text as either "STEM" or "Language-based". Only reply with one word: STEM or LANGUAGE.\n\n${uploadedText.slice(0, 5000)}`;
+    // Step 1: Categorize
+    const classifyPrompt = `Please classify the following text as either "STEM" or "Language-based". Only reply with one word: STEM or LANGUAGE.\n\n${uploadedText}`;
     const classifyResult = await model.generateContent(classifyPrompt);
     const category = classifyResult.response.text().trim().toUpperCase();
-    console.log("📂 Detected Category:", category);
+    console.log("📂 Category:", category);
 
-    // Step 2: Prepare the format prompt
-    const basePrompt =
+    // Step 2: Generate formatted notes
+    const notesPrompt =
       category === "STEM"
-        ? `Format this document into clear, structured, and neatly paragraphed bullet-point notes suitable for medical or STEM students. Group related information and use indentation where helpful:\n\n`
-        : `Turn this document into elegant, structured study notes suitable for humanities/language students. Use bullet points and paragraph groupings. Make it clean and organized:\n\n`;
+        ? `Convert this document into clean, indented, bullet-point, without any asterisk symbol study notes for STEM students (medical, science). Group ideas well:\n\n${uploadedText}`
+        : `Convert this document into beautiful, structured bullet-point notes for arts/language students. Make it elegant and clear:\n\n${uploadedText}`;
 
-    // Step 3: Split document into chunks and process each
-    const chunks = chunkText(uploadedText, 10000);
-    const formattedChunks = [];
+    const notesResult = await model.generateContent(notesPrompt);
+    const formattedNotes = notesResult.response.text().trim();
 
-    for (const chunk of chunks) {
-      const result = await model.generateContent(basePrompt + chunk);
-      const responseText = result.response.text().trim();
-      formattedChunks.push(responseText);
-    }
+    // Step 3: Generate lecture manuscript (limited to ~3500 characters)
+    const lecturePrompt = `You are a university professor giving a concise spoken lecture to students.
+Turn the following notes into a clear, natural-sounding lecture script.
 
-    const finalNotes = formattedChunks.join("\n\n");
+✅ Stay within 3000–3500 characters (roughly 3–5 paragraphs).
+✅ Use simple explanations, short sentences, and smooth transitions.
+✅ Do NOT list bullet points — this should sound like a human talking.
 
-    res.json({ category, formattedNotes: finalNotes });
+Here are the notes:
+${formattedNotes}`;
+
+    const lectureResult = await model.generateContent(lecturePrompt);
+    const manuscript = lectureResult.response.text().trim();
+
+    // Step 4: Convert to speech with Gemini/Google TTS
+    const [response] = await ttsClient.synthesizeSpeech({
+      input: { text: manuscript },
+      voice: {
+        languageCode: "en-US",
+        name: "en-US-Neural2-D",
+        ssmlGender: "MALE",
+      },
+      audioConfig: { audioEncoding: "MP3" },
+    });
+
+    const audioBase64 = response.audioContent.toString("base64");
+
+    res.json({
+      category,
+      formattedNotes,
+      manuscript,
+      audioBase64,
+    });
   } catch (err) {
-    console.error("❌ Gemini error:", err.message);
+    console.error("❌ Gemini/audio error:", err.message);
     if (err.stack) console.error("🧠 Stack trace:", err.stack);
     res.status(500).send("Note generation failed");
   }
 });
 
-// 🔊 ElevenLabs Audio route
-app.post("/generate-audio", async (req, res) => {
-  const { text } = req.body;
-  if (!text) return res.status(400).send("No text provided");
-
-  try {
-    const response = await axios.post(
-      `https://api.elevenlabs.io/v1/text-to-speech/${process.env.ELEVEN_VOICE_ID}`,
-      {
-        text,
-        voice_settings: { stability: 0.5, similarity_boost: 0.75 },
-      },
-      {
-        headers: {
-          "xi-api-key": process.env.ELEVEN_API_KEY,
-          "Content-Type": "application/json",
-        },
-        responseType: "arraybuffer",
-      }
-    );
-
-    res.set("Content-Type", "audio/mpeg");
-    res.send(response.data);
-  } catch (err) {
-    console.error("❌ ElevenLabs error:", err.response?.data || err.message);
-    res.status(500).send("Audio generation failed");
-  }
-});
-
-// ✅ Start server
 app.listen(port, () => {
   console.log(`🟢 Server running at http://localhost:${port}`);
 });
