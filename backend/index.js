@@ -1,4 +1,3 @@
-// backend/index.js
 const express = require("express");
 const fileUpload = require("express-fileupload");
 const cors = require("cors");
@@ -12,8 +11,8 @@ const app = express();
 const port = 5000;
 
 app.use(cors());
-app.use(express.json());
-app.use(fileUpload());
+app.use(express.json({ limit: "10mb" }));
+app.use(fileUpload({ limits: { fileSize: 50 * 1024 * 1024 } })); // 50MB max
 
 // ✅ Log environment variable status
 console.log("🔑 GEMINI:", process.env.GEMINI_API_KEY ? "Loaded" : "Missing");
@@ -29,7 +28,6 @@ let uploadedText = "";
 // 📄 Extract text from file
 async function extractText(file) {
   const ext = file.name.split(".").pop().toLowerCase();
-
   if (ext === "pdf") {
     const data = await pdfParse(file.data);
     return data.text;
@@ -43,13 +41,12 @@ async function extractText(file) {
   }
 }
 
-// 📤 File upload route
+// 📤 Upload route
 app.post("/upload", async (req, res) => {
   try {
     if (!req.files || !req.files.file) {
       return res.status(400).send("No file uploaded");
     }
-
     uploadedText = await extractText(req.files.file);
     res.json({ message: "✅ File uploaded. Text is now available for processing." });
   } catch (err) {
@@ -58,7 +55,16 @@ app.post("/upload", async (req, res) => {
   }
 });
 
-// 💬 Generate categorized and formatted notes
+// 📎 Helper: split text into smaller chunks
+function chunkText(text, maxLength = 10000) {
+  const chunks = [];
+  for (let i = 0; i < text.length; i += maxLength) {
+    chunks.push(text.slice(i, i + maxLength));
+  }
+  return chunks;
+}
+
+// 📄 Generate categorized and formatted notes
 app.post("/generate-notes", async (req, res) => {
   console.log("📨 /generate-notes endpoint hit!");
 
@@ -70,21 +76,30 @@ app.post("/generate-notes", async (req, res) => {
     const model = genAI.getGenerativeModel({ model: "gemini-1.5-pro-latest" });
 
     // Step 1: Categorize the document
-    const classifyPrompt = `Please classify the following text as either "STEM" or "Language-based". Only reply with one word: STEM or LANGUAGE.\n\n${uploadedText}`;
+    const classifyPrompt = `Please classify the following text as either "STEM" or "Language-based". Only reply with one word: STEM or LANGUAGE.\n\n${uploadedText.slice(0, 5000)}`;
     const classifyResult = await model.generateContent(classifyPrompt);
     const category = classifyResult.response.text().trim().toUpperCase();
     console.log("📂 Detected Category:", category);
 
-    // Step 2: Generate styled notes based on category
-    const formatPrompt =
+    // Step 2: Prepare the format prompt
+    const basePrompt =
       category === "STEM"
-        ? `Summarize the following text into structured, bullet-point notes suitable for studying STEM subjects (e.g. medicine, science, engineering). Make it neat, clear, and concise:\n\n${uploadedText}`
-        : `Summarize the following text into beautiful point-form notes suitable for studying language, arts, or humanities. Make the points clear, elegant, and well-organized:\n\n${uploadedText}`;
+        ? `Format this document into clear, structured, and neatly paragraphed bullet-point notes suitable for medical or STEM students. Group related information and use indentation where helpful:\n\n`
+        : `Turn this document into elegant, structured study notes suitable for humanities/language students. Use bullet points and paragraph groupings. Make it clean and organized:\n\n`;
 
-    const formatResult = await model.generateContent(formatPrompt);
-    const formattedNotes = formatResult.response.text().trim();
+    // Step 3: Split document into chunks and process each
+    const chunks = chunkText(uploadedText, 10000);
+    const formattedChunks = [];
 
-    res.json({ category, formattedNotes });
+    for (const chunk of chunks) {
+      const result = await model.generateContent(basePrompt + chunk);
+      const responseText = result.response.text().trim();
+      formattedChunks.push(responseText);
+    }
+
+    const finalNotes = formattedChunks.join("\n\n");
+
+    res.json({ category, formattedNotes: finalNotes });
   } catch (err) {
     console.error("❌ Gemini error:", err.message);
     if (err.stack) console.error("🧠 Stack trace:", err.stack);
@@ -92,7 +107,7 @@ app.post("/generate-notes", async (req, res) => {
   }
 });
 
-// 🔊 ElevenLabs Audio generation route
+// 🔊 ElevenLabs Audio route
 app.post("/generate-audio", async (req, res) => {
   const { text } = req.body;
   if (!text) return res.status(400).send("No text provided");
@@ -102,10 +117,7 @@ app.post("/generate-audio", async (req, res) => {
       `https://api.elevenlabs.io/v1/text-to-speech/${process.env.ELEVEN_VOICE_ID}`,
       {
         text,
-        voice_settings: {
-          stability: 0.5,
-          similarity_boost: 0.75,
-        },
+        voice_settings: { stability: 0.5, similarity_boost: 0.75 },
       },
       {
         headers: {
@@ -124,7 +136,7 @@ app.post("/generate-audio", async (req, res) => {
   }
 });
 
-// ✅ Start the server
+// ✅ Start server
 app.listen(port, () => {
   console.log(`🟢 Server running at http://localhost:${port}`);
 });

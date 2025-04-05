@@ -5,9 +5,9 @@ export default function App() {
   const [file, setFile] = useState(null);
   const [chatInput, setChatInput] = useState("");
   const [chatHistory, setChatHistory] = useState([]);
+  const [formattedNotes, setFormattedNotes] = useState("");
   const [audioUrl, setAudioUrl] = useState(null);
   const [uploadMessage, setUploadMessage] = useState("");
-  const [category, setCategory] = useState("");
 
   const handleFileUpload = async (e) => {
     const uploadedFile = e.target.files[0];
@@ -17,16 +17,11 @@ export default function App() {
     formData.append("file", uploadedFile);
 
     try {
-      // Step 1: Upload the file
       const uploadRes = await axios.post("http://localhost:5000/upload", formData);
-      setUploadMessage(uploadRes.data.message || "File uploaded. Processing...");
+      setUploadMessage(uploadRes.data.message || "File uploaded!");
 
-      // Step 2: Generate categorized notes
       const notesRes = await axios.post("http://localhost:5000/generate-notes");
-      const { formattedNotes, category } = notesRes.data;
-
-      setCategory(category);
-      setChatHistory([{ role: "assistant", content: formattedNotes }]);
+      setFormattedNotes(notesRes.data.formattedNotes);
     } catch (err) {
       console.error("Upload or generation error:", err);
       setUploadMessage("❌ Failed to upload or generate notes.");
@@ -34,7 +29,6 @@ export default function App() {
   };
 
   const handleChat = async () => {
-    console.log("🚀 Chat button clicked");
     if (!chatInput.trim()) return;
 
     const newMessage = { role: "user", content: chatInput };
@@ -85,7 +79,7 @@ export default function App() {
   };
 
   return (
-    <div className="max-w-3xl mx-auto p-6 font-sans space-y-6">
+    <div className="max-w-4xl mx-auto p-6 font-sans space-y-6">
       <h1 className="text-3xl font-bold text-center">🧠 AI Document Chat</h1>
 
       <div className="bg-white p-4 shadow rounded space-y-4">
@@ -98,12 +92,14 @@ export default function App() {
         {uploadMessage && (
           <p className="text-sm text-gray-600">{uploadMessage}</p>
         )}
-        {category && (
-          <p className="text-sm text-indigo-600 font-semibold">
-            📁 Detected Category: {category}
-          </p>
-        )}
       </div>
+
+      {formattedNotes && (
+        <div className="bg-white p-4 shadow rounded space-y-2">
+          <h2 className="text-lg font-semibold">📚 AI-Generated Notes</h2>
+          <div className="whitespace-pre-wrap text-sm text-gray-800">{formattedNotes}</div>
+        </div>
+      )}
 
       <div className="bg-white p-4 shadow rounded space-y-4">
         <h2 className="text-lg font-semibold">💬 Chat with Document</h2>
